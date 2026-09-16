@@ -1,0 +1,662 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1,viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#07131d" />
+    <link rel="manifest" href="manifest.json" />
+    <title>Touring Weather v0.4</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    />
+    <style>
+      :root {
+        --bg: #06131d;
+        --p: #0c1d29;
+        --l: #203746;
+        --b: #168cff;
+        --g: #24d3a2;
+        --y: #ffd54f;
+        --r: #ff5252;
+        --t: #f5f8fa;
+        --m: #9eb0bd;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--t);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      header {
+        padding: 18px 14px 8px;
+        max-width: 840px;
+        margin: auto;
+        font-size: 23px;
+        font-weight: 850;
+      }
+      header small {
+        display: block;
+        font-size: 9px;
+        letter-spacing: 3px;
+        color: #86a1b3;
+      }
+      .w {
+        max-width: 840px;
+        margin: auto;
+        padding: 8px 10px 30px;
+      }
+      .c {
+        background: var(--p);
+        border: 1px solid var(--l);
+        border-radius: 17px;
+        padding: 14px;
+        margin: 10px 0;
+      }
+      label {
+        display: block;
+        color: var(--m);
+        font-size: 12px;
+        margin: 9px 0 5px;
+      }
+      input,
+      button,
+      select {
+        width: 100%;
+        border: 1px solid #2a4353;
+        border-radius: 11px;
+        padding: 12px;
+        background: #102532;
+        color: white;
+        font-size: 15px;
+      }
+      button {
+        border: 0;
+        background: linear-gradient(135deg, #1677ff, #22a7ff);
+        font-weight: 800;
+      }
+      .sec {
+        background: #18303e;
+        border: 1px solid #365365;
+      }
+      .del {
+        background: #3a1d22;
+      }
+      .row,
+      .acts {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+      .way {
+        display: grid;
+        grid-template-columns: 1fr 44px;
+        gap: 7px;
+        margin-bottom: 7px;
+      }
+      #map {
+        height: 430px;
+        border-radius: 17px;
+        border: 1px solid var(--l);
+      }
+      .status {
+        font-size: 13px;
+        color: var(--m);
+        line-height: 1.5;
+        margin-top: 9px;
+      }
+      .sum {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 7px;
+      }
+      .met {
+        background: #102532;
+        border-radius: 12px;
+        padding: 10px;
+        text-align: center;
+        font-size: 12px;
+        color: var(--m);
+      }
+      .met b {
+        display: block;
+        color: #fff;
+        font-size: 19px;
+        margin-top: 4px;
+      }
+      .stop {
+        display: grid;
+        grid-template-columns: 62px 1fr auto;
+        gap: 7px;
+        align-items: center;
+        padding: 10px 0;
+        border-bottom: 1px solid #1c3342;
+        font-size: 13px;
+      }
+      .low {
+        color: var(--g);
+      }
+      .mid {
+        color: var(--y);
+      }
+      .high {
+        color: var(--r);
+      }
+      .risk {
+        font-weight: 850;
+      }
+      .notice {
+        padding: 11px;
+        border-radius: 12px;
+        margin: 10px 0;
+        line-height: 1.5;
+      }
+      .rain {
+        background: #35191c;
+        border: 1px solid #8b333a;
+      }
+      .good {
+        background: #123329;
+        border: 1px solid #28745d;
+      }
+      .wind {
+        background: #302713;
+        border: 1px solid #806a28;
+      }
+      .cmp {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 5px;
+      }
+      .search-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(75px, 1fr));
+        gap: 6px;
+      }
+      .route-mode {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+      }
+      .route-mode label {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin: 0;
+        padding: 10px;
+        border: 1px solid #2a4353;
+        border-radius: 11px;
+        background: #102532;
+        color: #fff;
+      }
+      .route-mode input {
+        width: auto;
+      }
+      .slot {
+        background: #102532;
+        border-radius: 10px;
+        padding: 9px 3px;
+        text-align: center;
+        font-size: 11px;
+      }
+      .slot b {
+        font-size: 16px;
+        display: block;
+      }
+      .best {
+        outline: 2px solid var(--g);
+      }
+      .hidden {
+        display: none;
+      }
+      .saved {
+        display: grid;
+        grid-template-columns: 1fr 90px;
+        gap: 7px;
+        margin: 7px 0;
+      }
+      .toggle {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        color: #c8d5dd;
+        margin: 10px 0;
+      }
+      .toggle input {
+        width: auto;
+      }
+      .foot {
+        font-size: 11px;
+        color: #718896;
+        line-height: 1.5;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      🏍️ Touring Weather <small>RIDE WITH CLEAR SKIES · v0.4</small>
+    </header>
+    <div class="w">
+      <div class="c">
+        <label>出発地</label><input id="start" value="東京駅" />
+        <div id="ways"></div>
+        <button id="add" class="sec">＋ 経由地</button><label>目的地</label
+        ><input id="end" value="山中湖" /><label class="toggle"
+          ><input id="round" type="checkbox" />往復ツーリング</label
+        >
+        <div class="row">
+          <div><label>出発日</label><input id="date" type="date" /></div>
+          <div>
+            <label>出発時刻</label><input id="time" type="time" value="07:00" />
+          </div>
+        </div>
+        <label>道路の希望</label>
+        <div class="route-mode">
+          <label
+            ><input
+              name="mode"
+              type="radio"
+              value="fast"
+              checked
+            />高速道路も利用</label
+          >
+          <label
+            ><input name="mode" type="radio" value="local" />一般道優先</label
+          >
+        </div>
+        <label>休憩</label>
+        <div class="row">
+          <select id="breakEvery">
+            <option value="0">休憩なし</option>
+            <option value="60">60分ごと</option>
+            <option value="90" selected>90分ごと</option>
+            <option value="120">120分ごと</option>
+          </select>
+          <select id="breakMinutes">
+            <option value="10">1回10分</option>
+            <option value="15" selected>1回15分</option>
+            <option value="30">1回30分</option>
+          </select>
+        </div>
+        <div class="acts">
+          <button id="loc" class="sec">📍 現在地</button
+          ><button id="go">天気解析</button>
+        </div>
+        <label>GPX読み込み</label><input id="gpx" type="file" accept=".gpx" />
+        <div id="msg" class="status">コースを設定してください。</div>
+      </div>
+      <div id="map"></div>
+      <div id="res" class="c hidden">
+        <div class="sum">
+          <div class="met">距離<b id="dist">--</b></div>
+          <div class="met">時間<b id="dur">--</b></div>
+          <div class="met">最大降水<b id="maxp">--</b></div>
+        </div>
+        <div id="alerts"></div>
+        <h3>✨ おすすめ出発時刻</h3>
+        <div id="recommend"></div>
+        <h3>🔎 5:00〜10:00 最適出発探索</h3>
+        <div id="wideSearch" class="search-grid"></div>
+        <h3>⏱ 出発時刻比較</h3>
+        <div id="cmp" class="cmp"></div>
+        <h3>🌦 ルート上の予報</h3>
+        <div id="stops"></div>
+        <button id="save" class="sec">💾 このコースを保存</button>
+      </div>
+      <div class="c">
+        <h3>📚 保存したツーリング</h3>
+        <div id="saved"></div>
+      </div>
+      <div class="foot">
+        試作版。経路はOSRMデモ（自動車向け）、天気はOpen-Meteo、地図はOpenStreetMap。一般道優先は高速道路を完全には除外できない参考設定です。二輪規制・通行止め等は必ず別途確認してください。
+      </div>
+    </div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+      const $ = (x) => document.getElementById(x),
+        map = L.map("map").setView([35.5, 138.9], 7);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "© OpenStreetMap",
+      }).addTo(map);
+      let layers = [],
+        gpx = null,
+        last = null,
+        weatherCache = new Map();
+      $("date").value = new Date().toISOString().slice(0, 10);
+      function clear() {
+        layers.forEach((x) => map.removeLayer(x));
+        layers = [];
+      }
+      function addWay(v = "") {
+        let d = document.createElement("div");
+        d.className = "way";
+        d.innerHTML = `<input class="wi" value="${v}" placeholder="例：道の駅どうし"><button class="del">×</button>`;
+        d.querySelector("button").onclick = () => d.remove();
+        $("ways").appendChild(d);
+      }
+      $("add").onclick = () => addWay();
+      $("loc").onclick = () =>
+        navigator.geolocation.getCurrentPosition(
+          (p) => {
+            $("start").value = `${p.coords.latitude},${p.coords.longitude}`;
+            $("msg").textContent = "現在地を設定しました";
+          },
+          () => ($("msg").textContent = "位置情報を取得できません"),
+        );
+      async function geo(q) {
+        let m = q.match(/^(-?\d+\.?\d*),\s*(-?\d+\.?\d*)$/);
+        if (m) return { lat: +m[1], lon: +m[2] };
+        let r = await fetch(
+            "https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=jp&q=" +
+              encodeURIComponent(q),
+          ),
+          j = await r.json();
+        if (!j[0]) throw Error("場所が見つかりません: " + q);
+        return { lat: +j[0].lat, lon: +j[0].lon };
+      }
+      async function wx(p, date) {
+        const key = `${p[0].toFixed(2)},${p[1].toFixed(2)},${date}`;
+        if (weatherCache.has(key)) return weatherCache.get(key);
+        let r = await fetch(
+          `https://api.open-meteo.com/v1/forecast?latitude=${p[0]}&longitude=${p[1]}&hourly=precipitation_probability,temperature_2m,wind_speed_10m,wind_gusts_10m&timezone=Asia%2FTokyo&start_date=${date}&end_date=${date}`,
+        );
+        if (!r.ok) throw Error("天気データを取得できません");
+        const data = await r.json();
+        weatherCache.set(key, data);
+        return data;
+      }
+      function near(w, dt) {
+        let k = 0,
+          d = 1e99;
+        w.hourly.time.forEach((t, i) => {
+          let z = Math.abs(new Date(t) - dt);
+          if (z < d) {
+            d = z;
+            k = i;
+          }
+        });
+        return {
+          p: w.hourly.precipitation_probability[k] ?? 0,
+          t: w.hourly.temperature_2m[k],
+          wind: w.hourly.wind_speed_10m[k],
+          gust: w.hourly.wind_gusts_10m[k],
+        };
+      }
+      function samp(a, n) {
+        return Array.from(
+          { length: n },
+          (_, i) => a[Math.round((i * (a.length - 1)) / (n - 1))],
+        );
+      }
+      function col(p) {
+        return p >= 60 ? "#ff5252" : p >= 30 ? "#ffd54f" : "#24d3a2";
+      }
+      function cl(p) {
+        return p >= 60 ? "high" : p >= 30 ? "mid" : "low";
+      }
+      async function assess(coords, start, sec, n = 7) {
+        let ps = samp(coords, n),
+          out = [];
+        for (let i = 0; i < ps.length; i++) {
+          let dt = new Date(
+              start.getTime() + (sec * 1000 * i) / (ps.length - 1),
+            ),
+            w = await wx(ps[i], dt.toLocaleDateString("sv-SE"));
+          out.push({ ...near(w, dt), pt: ps[i], dt });
+        }
+        return out;
+      }
+      async function timeCompare(coords, start, sec) {
+        let shifts = [-120, -60, 0, 60, 120],
+          v = [];
+        for (let sh of shifts) {
+          let f = await assess(
+            coords,
+            new Date(start.getTime() + sh * 60000),
+            sec,
+            5,
+          );
+          v.push({
+            sh,
+            max: Math.max(...f.map((x) => x.p)),
+            avg: Math.round(f.reduce((a, x) => a + x.p, 0) / f.length),
+          });
+        }
+        let score = (x) => x.max * 2 + x.avg,
+          best = v.reduce((a, b) => (score(b) < score(a) ? b : a));
+        $("cmp").innerHTML = v
+          .map(
+            (x) =>
+              `<div class="slot ${x == best ? "best" : ""}">${x.sh == 0 ? "設定" : (x.sh > 0 ? "+" : "") + x.sh / 60 + "h"}<b class="${cl(x.max)}">${x.max}%</b></div>`,
+          )
+          .join("");
+        let bt = new Date(start.getTime() + best.sh * 60000);
+        $("recommend").innerHTML =
+          `<div class="notice good">🏍️ この5候補では <b>${bt.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}出発</b> が最も雨リスクが低めです（ルート内最大 ${best.max}% / 平均 ${best.avg}%）。</div>`;
+      }
+      async function wideTimeSearch(coords, baseDate, sec) {
+        const slots = [];
+        for (let minute = 300; minute <= 600; minute += 30) {
+          const hh = String(Math.floor(minute / 60)).padStart(2, "0");
+          const mm = String(minute % 60).padStart(2, "0");
+          const start = new Date(`${baseDate}T${hh}:${mm}:00`);
+          const f = await assess(coords, start, sec, 5);
+          slots.push({
+            time: `${hh}:${mm}`,
+            max: Math.max(...f.map((x) => x.p)),
+            avg: Math.round(f.reduce((a, x) => a + x.p, 0) / f.length),
+          });
+          $("wideSearch").innerHTML = `計算中… ${slots.length}/11`;
+        }
+        const score = (x) => x.max * 2 + x.avg;
+        const best = slots.reduce((a, b) => (score(b) < score(a) ? b : a));
+        $("wideSearch").innerHTML = slots
+          .map(
+            (x) =>
+              `<div class="slot ${x === best ? "best" : ""}">${x.time}<b class="${cl(x.max)}">${x.max}%</b><small>平均 ${x.avg}%</small></div>`,
+          )
+          .join("");
+        $("recommend").innerHTML +=
+          `<div class="notice good">☀️ 5:00〜10:00では <b>${best.time}出発</b> が最適候補です（最大 ${best.max}% / 平均 ${best.avg}%）。</div>`;
+      }
+      function withBreaks(drivingSec) {
+        const every = +$("breakEvery").value;
+        const minutes = +$("breakMinutes").value;
+        if (!every) return { total: drivingSec, count: 0, added: 0 };
+        const count = Math.max(0, Math.ceil(drivingSec / (every * 60)) - 1);
+        return {
+          total: drivingSec + count * minutes * 60,
+          count,
+          added: count * minutes,
+        };
+      }
+      function render(coords, f, dist, sec) {
+        clear();
+        for (let i = 1; i < coords.length; i++) {
+          let s = Math.round((i / (coords.length - 1)) * (f.length - 1)),
+            l = L.polyline([coords[i - 1], coords[i]], {
+              color: col(f[s].p),
+              weight: 7,
+            }).addTo(map);
+          layers.push(l);
+        }
+        f.forEach((x) => {
+          let m = L.circleMarker(x.pt, {
+            radius: 6,
+            color: "#fff",
+            weight: 2,
+            fillColor: col(x.p),
+            fillOpacity: 1,
+          }).addTo(map);
+          layers.push(m);
+        });
+        map.fitBounds(L.latLngBounds(coords), { padding: [20, 20] });
+        let mp = Math.max(...f.map((x) => x.p)),
+          mg = Math.max(...f.map((x) => x.gust || 0));
+        $("dist").textContent = (dist / 1000).toFixed(0) + " km";
+        $("dur").textContent =
+          Math.floor(sec / 3600) + "h " + Math.round((sec % 3600) / 60) + "m";
+        $("maxp").textContent = mp + "%";
+        $("alerts").innerHTML =
+          (mp >= 60
+            ? `<div class="notice rain">☔ 降水確率が最大 ${mp}% の区間があります。</div>`
+            : "") +
+          (mg >= 50
+            ? `<div class="notice wind">💨 最大突風 ${Math.round(mg)} km/h。橋・高速・開けた区間は注意。</div>`
+            : "") +
+          (lastBreaks?.count
+            ? `<div class="notice good">☕ ${lastBreaks.count}回・計${lastBreaks.added}分の休憩を到着予想に反映しました。</div>`
+            : "");
+        $("stops").innerHTML = f
+          .map(
+            (x, i) =>
+              `<div class="stop"><b>${x.dt.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}</b><span>地点${i + 1}　${x.t}℃<br>風 ${x.wind} / 突風 ${x.gust} km/h</span><b class="${cl(x.p)}">☔${x.p}%</b></div>`,
+          )
+          .join("");
+        $("res").classList.remove("hidden");
+      }
+      $("gpx").onchange = async (e) => {
+        let txt = await e.target.files[0].text(),
+          xml = new DOMParser().parseFromString(txt, "text/xml"),
+          p = [...xml.querySelectorAll("trkpt,rtept")].map((x) => [
+            +x.getAttribute("lat"),
+            +x.getAttribute("lon"),
+          ]);
+        if (p.length > 1) {
+          gpx = p;
+          $("msg").textContent = `GPX ${p.length}点を読み込みました`;
+        } else $("msg").textContent = "GPXにルート点がありません";
+      };
+      let lastBreaks = null;
+      $("go").onclick = async () => {
+        try {
+          $("go").disabled = true;
+          $("msg").textContent = "ルートと天気を解析中…";
+          weatherCache.clear();
+          let coords,
+            dist = 0,
+            sec = 0,
+            names = [
+              $("start").value,
+              ...[...document.querySelectorAll(".wi")]
+                .map((x) => x.value)
+                .filter(Boolean),
+              $("end").value,
+            ];
+          if ($("round").checked) names.push($("start").value);
+          if (gpx) {
+            coords = gpx;
+            for (let i = 1; i < coords.length; i++) {
+              let a = coords[i - 1],
+                b = coords[i],
+                R = 6371e3,
+                p1 = (a[0] * Math.PI) / 180,
+                p2 = (b[0] * Math.PI) / 180,
+                dp = ((b[0] - a[0]) * Math.PI) / 180,
+                dl = ((b[1] - a[1]) * Math.PI) / 180,
+                h =
+                  Math.sin(dp / 2) ** 2 +
+                  Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+              dist += 2 * R * Math.asin(Math.sqrt(h));
+            }
+            const mode = document.querySelector(
+              'input[name="mode"]:checked',
+            ).value;
+            sec = (dist / (mode === "local" ? 35000 : 45000)) * 3600;
+          } else {
+            let ps = [];
+            for (let n of names) ps.push(await geo(n));
+            let q = ps.map((p) => `${p.lon},${p.lat}`).join(";"),
+              j = await (
+                await fetch(
+                  `https://router.project-osrm.org/route/v1/driving/${q}?overview=full&geometries=geojson`,
+                )
+              ).json();
+            if (!j.routes?.length) throw Error("ルート作成失敗");
+            coords = j.routes[0].geometry.coordinates.map((x) => [x[1], x[0]]);
+            dist = j.routes[0].distance;
+            sec = j.routes[0].duration;
+          }
+          lastBreaks = withBreaks(sec);
+          sec = lastBreaks.total;
+          let st = new Date(`${$("date").value}T${$("time").value}:00`),
+            f = await assess(coords, st, sec, 9);
+          render(coords, f, dist, sec);
+          await timeCompare(coords, st, sec);
+          await wideTimeSearch(coords, $("date").value, sec);
+          last = {
+            start: $("start").value,
+            end: $("end").value,
+            ways: [...document.querySelectorAll(".wi")]
+              .map((x) => x.value)
+              .filter(Boolean),
+            round: $("round").checked,
+            date: $("date").value,
+            time: $("time").value,
+            mode: document.querySelector('input[name="mode"]:checked').value,
+            breakEvery: $("breakEvery").value,
+            breakMinutes: $("breakMinutes").value,
+          };
+          $("msg").textContent = "解析完了";
+        } catch (e) {
+          $("msg").textContent = "エラー: " + e.message;
+        } finally {
+          $("go").disabled = false;
+        }
+      };
+      function showSaved() {
+        let a = JSON.parse(localStorage.getItem("tw-routes") || "[]");
+        $("saved").innerHTML = a.length
+          ? a
+              .map(
+                (x, i) =>
+                  `<div class="saved"><button class="sec" onclick="loadR(${i})">${x.start} → ${x.end}${x.round ? " ↩" : ""}</button><button class="del" onclick="delR(${i})">削除</button></div>`,
+              )
+              .join("")
+          : '<div class="status">まだ保存されていません。</div>';
+      }
+      window.loadR = (i) => {
+        let a = JSON.parse(localStorage.getItem("tw-routes") || "[]"),
+          x = a[i];
+        $("start").value = x.start;
+        $("end").value = x.end;
+        $("ways").innerHTML = "";
+        x.ways.forEach(addWay);
+        $("round").checked = x.round;
+        $("date").value = x.date;
+        $("time").value = x.time;
+        const mode = document.querySelector(
+          `input[name="mode"][value="${x.mode || "fast"}"]`,
+        );
+        if (mode) mode.checked = true;
+        $("breakEvery").value = x.breakEvery || "90";
+        $("breakMinutes").value = x.breakMinutes || "15";
+        scrollTo({ top: 0, behavior: "smooth" });
+      };
+      window.delR = (i) => {
+        let a = JSON.parse(localStorage.getItem("tw-routes") || "[]");
+        a.splice(i, 1);
+        localStorage.setItem("tw-routes", JSON.stringify(a));
+        showSaved();
+      };
+      $("save").onclick = () => {
+        if (!last) return;
+        let a = JSON.parse(localStorage.getItem("tw-routes") || "[]");
+        a.unshift(last);
+        a = a.slice(0, 20);
+        localStorage.setItem("tw-routes", JSON.stringify(a));
+        showSaved();
+        $("msg").textContent = "コースを保存しました";
+      };
+      showSaved();
+      if ("serviceWorker" in navigator)
+        navigator.serviceWorker.register("sw.js");
+    </script>
+  </body>
+</html>
