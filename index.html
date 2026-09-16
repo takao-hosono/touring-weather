@@ -8,7 +8,7 @@
     />
     <meta name="theme-color" content="#07131d" />
     <link rel="manifest" href="manifest.json" />
-    <title>Touring Weather v0.5</title>
+    <title>Touring Weather v0.6</title>
     <link
       rel="stylesheet"
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -96,7 +96,7 @@
       }
       .way {
         display: grid;
-        grid-template-columns: 1fr 44px;
+        grid-template-columns: minmax(0, 1fr) 58px 44px;
         gap: 7px;
         margin-bottom: 7px;
       }
@@ -240,7 +240,7 @@
   </head>
   <body>
     <header>
-      🏍️ Touring Weather <small>RIDE WITH CLEAR SKIES · v0.5</small>
+      🏍️ Touring Weather <small>RIDE WITH CLEAR SKIES · v0.6</small>
     </header>
     <div class="w">
       <div class="c">
@@ -291,7 +291,10 @@
         <label>GPX読み込み</label><input id="gpx" type="file" accept=".gpx" />
         <div id="msg" class="status">コースを設定してください。</div>
       </div>
+      <div id="locationNotice" class="c hidden" role="status"></div>
+      <button id="pickStart" class="sec">地図で出発地を指定</button>
       <div id="map"></div>
+      <button id="acceptPin" class="hidden">このピン位置を使用する</button>
       <div id="res" class="c hidden">
         <div class="sum">
           <div class="met">距離<b id="dist">--</b></div>
@@ -336,8 +339,13 @@
       function addWay(v = "") {
         let d = document.createElement("div");
         d.className = "way";
-        d.innerHTML = `<input class="wi" value="${v}" placeholder="例：道の駅どうし"><button class="del">×</button>`;
-        d.querySelector("button").onclick = () => d.remove();
+        d.innerHTML = '<input class="wi" placeholder="地名を入力／地図で指定"><button class="sec pinWay">地図</button><button class="del" aria-label="経由地を削除">×</button>';
+        d.querySelector("input").value = v;
+        d.querySelector(".pinWay").onclick = () => pickInput(d.querySelector("input"), "経由地");
+        d.querySelector(".del").onclick = () => {
+          if (editingInput === d.querySelector("input")) cancelPin();
+          d.remove();
+        };
         $("ways").appendChild(d);
       }
       $("add").onclick = () => addWay();
@@ -355,6 +363,59 @@
         談合坂サービスエリア: "談合坂SA 山梨県上野原市",
       };
       let lastGeoRequest = 0;
+      function addressQueries(value) {
+        const raw = value.normalize("NFKC").trim().replace(/[‐‑‒–—−ー]/g, "-");
+        const full = raw.replace(/(\d+)\s*-\s*(\d+)\s*-\s*(\d+)(?:号)?$/, "$1丁目$2番$3号");
+        const area = full.match(/^(.*?[0-9一二三四五六七八九十]+丁目)/)?.[1];
+        return [...new Set([raw, full, ...(area && area !== full ? [area] : [])])];
+      }
+      let editingPin = null, editingInput = null;
+      function cancelPin() {
+        if (editingPin) map.removeLayer(editingPin);
+        editingPin = null; editingInput = null;
+        $("acceptPin").classList.add("hidden");
+        $("locationNotice").classList.add("hidden");
+      }
+      async function pickInput(input, label) {
+        let p = map.getCenter(), point = {lat:p.lat, lon:p.lng};
+        if (input.value.trim()) {
+          try { point = await geo(input.value); }
+          catch(e) { /* 地名がなくても地図で選択できる */ }
+        }
+        if (!input.isConnected) return;
+        editLocation(input, point, `${label}をピンで指定します。検索結果は概略位置の場合があります。`);
+      }
+      function editLocation(input, point, message) {
+        if (editingPin) map.removeLayer(editingPin);
+        editingInput = input;
+        editingPin = L.marker([point.lat, point.lon], {draggable:true}).addTo(map);
+        map.setView([point.lat, point.lon], 17);
+        $("locationNotice").textContent = message + " 地図をタップするかピンを動かし、道路沿いの位置を確認してください。";
+        $("locationNotice").classList.remove("hidden");
+        $("acceptPin").classList.remove("hidden");
+        $("map").scrollIntoView({behavior:"smooth", block:"center"});
+      }
+      map.on("click", (e) => { if (editingPin) editingPin.setLatLng(e.latlng); });
+      $("acceptPin").onclick = () => {
+        const p = editingPin.getLatLng();
+        editingInput.value = `${p.lat.toFixed(7)},${p.lng.toFixed(7)}`;
+        gpx = null;
+        $("gpx").value = "";
+        editingInput.dispatchEvent(new Event("input", {bubbles:true}));
+        map.removeLayer(editingPin); editingPin = null;
+        $("acceptPin").classList.add("hidden");
+        $("locationNotice").textContent = "指定したピン位置を設定しました。「天気解析」を押してください。";
+      };
+      $("pickStart").onclick = async () => {
+        $("pickStart").disabled = true;
+        try {
+          const p = await geo($("start").value);
+          editLocation($("start"), p, p.approximate ? "番地の位置は未確認です。検索された概略位置を表示しています。" : "出発地を調整できます。");
+        } catch(e) {
+          const p = map.getCenter();
+          editLocation($("start"), {lat:p.lat, lon:p.lng}, "住所を取得できませんでした。地図で出発地を指定してください。");
+        } finally { $("pickStart").disabled = false; }
+      };
       const norm = (s) =>
         String(s || "")
           .normalize("NFKC")
@@ -382,7 +443,8 @@
         return chars.filter((c) => display.includes(c)).length / chars.length;
       }
       async function geo(q, previous = null) {
-        q = q.trim();
+        q = q.normalize("NFKC").trim();
+        if (!q) throw Error("出発地・目的地を入力してください");
         let m = q.match(/^(-?\d+\.?\d*),\s*(-?\d+\.?\d*)$/);
         if (m) {
           const p = { lat: +m[1], lon: +m[2], label: q };
@@ -392,7 +454,7 @@
         }
         const compact = norm(q),
           aliasKey = Object.keys(GEO_ALIASES).find((x) => norm(x) === compact),
-          searches = [...new Set([aliasKey ? GEO_ALIASES[aliasKey] : q, q])];
+          searches = aliasKey ? [GEO_ALIASES[aliasKey]] : addressQueries(q);
         let best = null;
         for (const search of searches) {
           const wait = Math.max(0, 1050 - (Date.now() - lastGeoRequest));
@@ -409,11 +471,11 @@
               lat: +item.lat,
               lon: +item.lon,
               label: item.display_name,
+              approximate: /\d+\s*[-丁目番]/.test(q),
             };
-            const textScore = Math.max(
-              matchScore(q, item),
-              matchScore(search, item),
-            );
+            const textScore = matchScore(search, item);
+            const prefecture = search.match(/^(東京都|北海道|京都府|大阪府|.{2,3}県)/)?.[1];
+            if (prefecture && !item.display_name.includes(prefecture)) continue;
             if (textScore < 0.55) continue;
             const proximity = previous ? Math.min(km(previous, p), 1000) : 0;
             const score = textScore * 100 + +(item.importance || 0) * 10 - proximity / 40;
@@ -604,6 +666,8 @@
       $("go").onclick = async () => {
         try {
           $("go").disabled = true;
+          $("res").classList.add("hidden");
+          last = null;
           $("msg").textContent = "ルートと天気を解析中…";
           weatherCache.clear();
           let coords,
@@ -641,6 +705,12 @@
               resolved = [];
             for (let n of names) {
               const p = await geo(n, ps.at(-1) || null);
+              if (p.approximate) {
+                const fields = [$("start"), ...document.querySelectorAll(".wi"), $("end")];
+                const field = fields.find((x) => x.value === n);
+                editLocation(field, p, `「${n}」の番地の位置は未確認です。概略位置：${p.label}`);
+                throw Error("番地まで特定できないため、地図のピン位置を確認して確定してください。");
+              }
               ps.push(p);
               resolved.push(`${n} → ${p.label}`);
               $("msg").textContent =
