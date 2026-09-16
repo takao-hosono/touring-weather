@@ -8,7 +8,7 @@
     />
     <meta name="theme-color" content="#07131d" />
     <link rel="manifest" href="manifest.json" />
-    <title>Touring Weather v0.4</title>
+    <title>Touring Weather v0.5</title>
     <link
       rel="stylesheet"
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -240,7 +240,7 @@
   </head>
   <body>
     <header>
-      🏍️ Touring Weather <small>RIDE WITH CLEAR SKIES · v0.4</small>
+      🏍️ Touring Weather <small>RIDE WITH CLEAR SKIES · v0.5</small>
     </header>
     <div class="w">
       <div class="c">
@@ -349,16 +349,83 @@
           },
           () => ($("msg").textContent = "位置情報を取得できません"),
         );
-      async function geo(q) {
+      const GEO_ALIASES = {
+        談合坂: "談合坂SA 山梨県上野原市",
+        談合坂SA: "談合坂SA 山梨県上野原市",
+        談合坂サービスエリア: "談合坂SA 山梨県上野原市",
+      };
+      let lastGeoRequest = 0;
+      const norm = (s) =>
+        String(s || "")
+          .normalize("NFKC")
+          .toLowerCase()
+          .replace(/[\s　・,，.。()（）\-ー]/g, "");
+      function km(a, b) {
+        const R = 6371,
+          p1 = (a.lat * Math.PI) / 180,
+          p2 = (b.lat * Math.PI) / 180,
+          dp = ((b.lat - a.lat) * Math.PI) / 180,
+          dl = ((b.lon - a.lon) * Math.PI) / 180,
+          h =
+            Math.sin(dp / 2) ** 2 +
+            Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+        return 2 * R * Math.asin(Math.sqrt(h));
+      }
+      function matchScore(query, item) {
+        const q = norm(query),
+          name = norm(item.name),
+          display = norm(item.display_name);
+        if (name === q) return 1;
+        if (name.includes(q) || display.includes(q)) return 0.95;
+        const chars = [...new Set(q.replace(/[0-9]/g, ""))];
+        if (!chars.length) return 0;
+        return chars.filter((c) => display.includes(c)).length / chars.length;
+      }
+      async function geo(q, previous = null) {
+        q = q.trim();
         let m = q.match(/^(-?\d+\.?\d*),\s*(-?\d+\.?\d*)$/);
-        if (m) return { lat: +m[1], lon: +m[2] };
-        let r = await fetch(
-            "https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=jp&q=" +
-              encodeURIComponent(q),
-          ),
-          j = await r.json();
-        if (!j[0]) throw Error("場所が見つかりません: " + q);
-        return { lat: +j[0].lat, lon: +j[0].lon };
+        if (m) {
+          const p = { lat: +m[1], lon: +m[2], label: q };
+          if (p.lat < 20 || p.lat > 46 || p.lon < 122 || p.lon > 154)
+            throw Error("日本国内の緯度・経度を入力してください: " + q);
+          return p;
+        }
+        const compact = norm(q),
+          aliasKey = Object.keys(GEO_ALIASES).find((x) => norm(x) === compact),
+          searches = [...new Set([aliasKey ? GEO_ALIASES[aliasKey] : q, q])];
+        let best = null;
+        for (const search of searches) {
+          const wait = Math.max(0, 1050 - (Date.now() - lastGeoRequest));
+          if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
+          lastGeoRequest = Date.now();
+          const url =
+            "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&countrycodes=jp&accept-language=ja&addressdetails=1&q=" +
+            encodeURIComponent(search);
+          const r = await fetch(url);
+          if (!r.ok) throw Error("場所検索サービスに接続できません");
+          const items = await r.json();
+          for (const item of items) {
+            const p = {
+              lat: +item.lat,
+              lon: +item.lon,
+              label: item.display_name,
+            };
+            const textScore = Math.max(
+              matchScore(q, item),
+              matchScore(search, item),
+            );
+            if (textScore < 0.55) continue;
+            const proximity = previous ? Math.min(km(previous, p), 1000) : 0;
+            const score = textScore * 100 + +(item.importance || 0) * 10 - proximity / 40;
+            if (!best || score > best.score) best = { ...p, score };
+          }
+          if (best) break;
+        }
+        if (!best)
+          throw Error(
+            `「${q}」を正しく特定できません。都道府県・市町村や「SA」「駅」などを加えてください。`,
+          );
+        return best;
       }
       async function wx(p, date) {
         const key = `${p[0].toFixed(2)},${p[1].toFixed(2)},${date}`;
@@ -570,8 +637,15 @@
             ).value;
             sec = (dist / (mode === "local" ? 35000 : 45000)) * 3600;
           } else {
-            let ps = [];
-            for (let n of names) ps.push(await geo(n));
+            let ps = [],
+              resolved = [];
+            for (let n of names) {
+              const p = await geo(n, ps.at(-1) || null);
+              ps.push(p);
+              resolved.push(`${n} → ${p.label}`);
+              $("msg").textContent =
+                `地点を確認中… ${ps.length}/${names.length}\n${resolved.at(-1)}`;
+            }
             let q = ps.map((p) => `${p.lon},${p.lat}`).join(";"),
               j = await (
                 await fetch(
@@ -582,6 +656,14 @@
             coords = j.routes[0].geometry.coordinates.map((x) => [x[1], x[0]]);
             dist = j.routes[0].distance;
             sec = j.routes[0].duration;
+            let directKm = 0;
+            for (let i = 1; i < ps.length; i++) directKm += km(ps[i - 1], ps[i]);
+            if (dist / 1000 > Math.max(directKm * 4, directKm + 500))
+              throw Error(
+                "入力地点から大きく外れる異常なルートを検出しました。地点名を詳しく入力してください。",
+              );
+            $("msg").textContent =
+              "地点確認完了：" + resolved.map((x) => x.split(" → ")[1]).join(" → ");
           }
           lastBreaks = withBreaks(sec);
           sec = lastBreaks.total;
