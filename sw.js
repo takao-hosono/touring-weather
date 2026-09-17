@@ -1,9 +1,18 @@
-const C = "tw-v09";
+const C = "tw-v010";
 self.addEventListener("install", (e) =>
   e.waitUntil(
     caches
       .open(C)
-      .then((c) => c.addAll(["./index.html", "./manifest.json"]))
+      .then((c) =>
+        c.addAll([
+          "./index.html",
+          "./manifest.json",
+          "./icon-192.png",
+          "./icon-512.png",
+          "./apple-touch-icon.png",
+          "./favicon-32.png",
+        ]),
+      )
       .then(() => self.skipWaiting()),
   ),
 );
