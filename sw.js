@@ -1,4 +1,4 @@
-const C = "tw-v06";
+const C = "tw-v07";
 self.addEventListener("install", (e) =>
   e.waitUntil(
     caches

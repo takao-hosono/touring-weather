@@ -8,7 +8,7 @@
     />
     <meta name="theme-color" content="#07131d" />
     <link rel="manifest" href="manifest.json" />
-    <title>Touring Weather v0.6</title>
+    <title>Touring Weather v0.7</title>
     <link
       rel="stylesheet"
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -91,8 +91,19 @@
       .row,
       .acts {
         display: grid;
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
         gap: 8px;
+      }
+      .row > *,
+      .acts > * {
+        min-width: 0;
+      }
+      input[type="date"],
+      input[type="time"] {
+        display: block;
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
       }
       .way {
         display: grid;
@@ -240,14 +251,14 @@
   </head>
   <body>
     <header>
-      🏍️ Touring Weather <small>RIDE WITH CLEAR SKIES · v0.6</small>
+      🏍️ Touring Weather <small>RIDE WITH CLEAR SKIES · v0.7</small>
     </header>
     <div class="w">
       <div class="c">
-        <label>出発地</label><input id="start" value="東京駅" />
+        <label>出発地</label><input id="start" value="" placeholder="住所・地名を入力、または地図で指定" />
         <div id="ways"></div>
         <button id="add" class="sec">＋ 経由地</button><label>目的地</label
-        ><input id="end" value="山中湖" /><label class="toggle"
+        ><input id="end" value="" placeholder="住所・地名を入力" /><label class="toggle"
           ><input id="round" type="checkbox" />往復ツーリング</label
         >
         <div class="row">
