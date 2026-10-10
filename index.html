@@ -11,7 +11,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-title" content="Touring Weather" />
-    <title>Touring Weather v0.11</title>
+    <title>Touring Weather v0.12</title>
     <link
       rel="stylesheet"
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -236,6 +236,22 @@
       .route-mode input {
         width: auto;
       }
+      .route-choice-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+        gap: 7px;
+        margin: 8px 0;
+      }
+      .route-option {
+        background: #18303e;
+        border: 1px solid #365365;
+        padding: 10px 6px;
+        font-size: 13px;
+      }
+      .route-option.active {
+        outline: 2px solid var(--g);
+        background: #123329;
+      }
       .slot {
         background: #102532;
         border-radius: 10px;
@@ -278,7 +294,7 @@
   </head>
   <body>
     <header>
-      🏍️ Touring Weather <small>RIDE WITH CLEAR SKIES · v0.11</small>
+      🏍️ Touring Weather <small>RIDE WITH CLEAR SKIES · v0.12</small>
     </header>
     <div class="w">
       <div class="c">
@@ -302,10 +318,10 @@
               type="radio"
               value="fast"
               checked
-            />高速道路も利用</label
+            />所要時間を優先</label
           >
           <label
-            ><input name="mode" type="radio" value="local" />一般道優先</label
+            ><input name="mode" type="radio" value="local" />走行距離を優先</label
           >
         </div>
         <label>休憩</label>
@@ -336,6 +352,11 @@
       <div id="map"></div>
       <button id="acceptPin" class="hidden">このピン位置を使用する</button>
       <div id="res" class="c hidden">
+        <div id="routeBox" class="hidden">
+          <h3>🛣️ ルート候補</h3>
+          <div id="routeChoices" class="route-choice-grid"></div>
+          <div class="status">候補を押すと、そのルートで天気を再解析します。299号など通りたい道路が候補にない場合は、経由地の「地図」から道路上にピンを置いてください。</div>
+        </div>
         <div class="sum">
           <div class="met">距離<b id="dist">--</b></div>
           <div class="met">時間<b id="dur">--</b></div>
@@ -350,6 +371,8 @@
         <div id="cmp" class="cmp"></div>
         <h3>🌦 ルート上の予報</h3>
         <div id="stops"></div>
+        <button id="googleNav">🧭 Googleマップでナビ</button>
+        <div id="googleNote" class="status"></div>
         <button id="save" class="sec">💾 このコースを保存</button>
       </div>
       <div class="c">
@@ -357,7 +380,7 @@
         <div id="saved"></div>
       </div>
       <div class="foot">
-        試作版。経路はOSRMデモ（自動車向け）、天気はOpen-Meteo、地図はOpenStreetMap。一般道優先は高速道路を完全には除外できない参考設定です。二輪規制・通行止め等は必ず別途確認してください。
+        試作版。経路候補はOSRMデモ（自動車向け）、天気はOpen-Meteo、地図はOpenStreetMapです。「距離優先」は取得できた候補内で最短の経路を選びます。Googleマップでは経路が再計算される場合があります。二輪規制・通行止め等は必ず別途確認してください。
       </div>
     </div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -370,6 +393,8 @@
       let layers = [],
         gpx = null,
         last = null,
+        pendingRouteIndex = null,
+        googleNavUrl = "",
         weatherCache = new Map();
       $("date").value = new Date().toISOString().slice(0, 10);
       function clear() {
@@ -645,6 +670,56 @@
           added: count * minutes,
         };
       }
+      function shortDuration(sec) {
+        const h = Math.floor(sec / 3600),
+          m = Math.round((sec % 3600) / 60);
+        return `${h ? h + "時間" : ""}${m}分`;
+      }
+      function showRouteChoices(routes, selected) {
+        if (!routes?.length) {
+          $("routeBox").classList.add("hidden");
+          $("routeChoices").innerHTML = "";
+          return;
+        }
+        $("routeChoices").innerHTML = routes
+          .map(
+            (r, i) =>
+              `<button class="route-option ${i === selected ? "active" : ""}" onclick="chooseRoute(${i})">候補${i + 1}<br>${(r.distance / 1000).toFixed(0)}km・${shortDuration(r.duration)}</button>`,
+          )
+          .join("");
+        $("routeBox").classList.remove("hidden");
+      }
+      window.chooseRoute = (i) => {
+        pendingRouteIndex = i;
+        $("go").click();
+      };
+      function setGoogleNavigation(points) {
+        if (!points || points.length < 2) {
+          googleNavUrl = "";
+          $("googleNav").classList.add("hidden");
+          $("googleNote").textContent = "";
+          return;
+        }
+        const text = (p) => `${p.lat.toFixed(6)},${p.lon.toFixed(6)}`,
+          url = new URL("https://www.google.com/maps/dir/");
+        url.searchParams.set("api", "1");
+        url.searchParams.set("origin", text(points[0]));
+        url.searchParams.set("destination", text(points.at(-1)));
+        url.searchParams.set("travelmode", "driving");
+        const allWays = points.slice(1, -1),
+          mobileWays = allWays.slice(0, 3);
+        if (mobileWays.length)
+          url.searchParams.set("waypoints", mobileWays.map(text).join("|"));
+        googleNavUrl = url.toString();
+        $("googleNav").classList.remove("hidden");
+        $("googleNote").textContent =
+          allWays.length > 3
+            ? `Googleマップのモバイル版には経由地を3か所まで渡します（全${allWays.length}か所）。`
+            : "Googleマップ側でルートが再計算されます。通りたい道路は経由地ピンで指定してください。";
+      }
+      $("googleNav").onclick = () => {
+        if (googleNavUrl) location.href = googleNavUrl;
+      };
       function render(coords, f, dist, sec) {
         clear();
         for (let i = 1; i < coords.length; i++) {
@@ -705,6 +780,8 @@
       let lastBreaks = null;
       $("go").onclick = async () => {
         try {
+          const requestedRouteIndex = pendingRouteIndex;
+          pendingRouteIndex = null;
           $("go").disabled = true;
           $("res").classList.add("hidden");
           last = null;
@@ -713,6 +790,9 @@
           let coords,
             dist = 0,
             sec = 0,
+            routeCandidates = [],
+            selectedRouteIndex = 0,
+            navPoints = [],
             names = [
               $("start").value,
               ...[...document.querySelectorAll(".wi")]
@@ -723,6 +803,11 @@
           if ($("round").checked) names.push($("start").value);
           if (gpx) {
             coords = gpx;
+            navPoints = [
+              { lat: coords[0][0], lon: coords[0][1] },
+              { lat: coords.at(-1)[0], lon: coords.at(-1)[1] },
+            ];
+            showRouteChoices([], 0);
             for (let i = 1; i < coords.length; i++) {
               let a = coords[i - 1],
                 b = coords[i],
@@ -756,16 +841,41 @@
               $("msg").textContent =
                 `地点を確認中… ${ps.length}/${names.length}\n${resolved.at(-1)}`;
             }
+            navPoints = ps;
             let q = ps.map((p) => `${p.lon},${p.lat}`).join(";"),
               j = await (
                 await fetch(
-                  `https://router.project-osrm.org/route/v1/driving/${q}?overview=full&geometries=geojson`,
+                  `https://router.project-osrm.org/route/v1/driving/${q}?overview=full&geometries=geojson&alternatives=3`,
                 )
               ).json();
             if (!j.routes?.length) throw Error("ルート作成失敗");
-            coords = j.routes[0].geometry.coordinates.map((x) => [x[1], x[0]]);
-            dist = j.routes[0].distance;
-            sec = j.routes[0].duration;
+            routeCandidates = j.routes.slice(0, 3);
+            const mode = document.querySelector(
+              'input[name="mode"]:checked',
+            ).value;
+            if (
+              Number.isInteger(requestedRouteIndex) &&
+              requestedRouteIndex >= 0 &&
+              requestedRouteIndex < routeCandidates.length
+            )
+              selectedRouteIndex = requestedRouteIndex;
+            else if (mode === "local")
+              selectedRouteIndex = routeCandidates.reduce(
+                (best, r, i, a) =>
+                  r.distance < a[best].distance ? i : best,
+                0,
+              );
+            else
+              selectedRouteIndex = routeCandidates.reduce(
+                (best, r, i, a) =>
+                  r.duration < a[best].duration ? i : best,
+                0,
+              );
+            const selectedRoute = routeCandidates[selectedRouteIndex];
+            coords = selectedRoute.geometry.coordinates.map((x) => [x[1], x[0]]);
+            dist = selectedRoute.distance;
+            sec = selectedRoute.duration;
+            showRouteChoices(routeCandidates, selectedRouteIndex);
             let directKm = 0;
             for (let i = 1; i < ps.length; i++) directKm += km(ps[i - 1], ps[i]);
             if (dist / 1000 > Math.max(directKm * 4, directKm + 500))
@@ -775,6 +885,7 @@
             $("msg").textContent =
               "地点確認完了：" + resolved.map((x) => x.split(" → ")[1]).join(" → ");
           }
+          setGoogleNavigation(navPoints);
           lastBreaks = withBreaks(sec);
           sec = lastBreaks.total;
           let st = new Date(`${$("date").value}T${$("time").value}:00`),
@@ -795,7 +906,9 @@
             breakEvery: $("breakEvery").value,
             breakMinutes: $("breakMinutes").value,
           };
-          $("msg").textContent = "解析完了";
+          $("msg").textContent = routeCandidates.length > 1
+            ? `解析完了（候補${selectedRouteIndex + 1}を表示）`
+            : "解析完了";
         } catch (e) {
           $("msg").textContent = "エラー: " + e.message;
         } finally {
