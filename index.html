@@ -11,7 +11,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-title" content="Touring Weather" />
-    <title>Touring Weather v0.12</title>
+    <title>Touring Weather v0.13</title>
     <link
       rel="stylesheet"
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -252,6 +252,9 @@
         outline: 2px solid var(--g);
         background: #123329;
       }
+      button:disabled {
+        opacity: 0.45;
+      }
       .slot {
         background: #102532;
         border-radius: 10px;
@@ -294,7 +297,7 @@
   </head>
   <body>
     <header>
-      🏍️ Touring Weather <small>RIDE WITH CLEAR SKIES · v0.12</small>
+      🏍️ Touring Weather <small>RIDE WITH CLEAR SKIES · v0.13</small>
     </header>
     <div class="w">
       <div class="c">
@@ -342,7 +345,7 @@
         </div>
         <div class="acts">
           <button id="loc" class="sec">📍 現在地</button
-          ><button id="go">天気解析</button>
+          ><button id="routeSearch">🛣️ ルートを検索</button>
         </div>
         <label>GPX読み込み</label><input id="gpx" type="file" accept=".gpx" />
         <div id="msg" class="status">コースを設定してください。</div>
@@ -351,12 +354,18 @@
       <button id="pickStart" class="sec">地図で出発地を指定</button>
       <div id="map"></div>
       <button id="acceptPin" class="hidden">このピン位置を使用する</button>
-      <div id="res" class="c hidden">
-        <div id="routeBox" class="hidden">
-          <h3>🛣️ ルート候補</h3>
-          <div id="routeChoices" class="route-choice-grid"></div>
-          <div class="status">候補を押すと、そのルートで天気を再解析します。299号など通りたい道路が候補にない場合は、経由地の「地図」から道路上にピンを置いてください。</div>
+      <div id="routeBox" class="c hidden">
+        <h3>🛣️ ルートを選択</h3>
+        <div id="routeChoices" class="route-choice-grid"></div>
+        <div class="sum">
+          <div class="met">選択ルートの距離<b id="planDist">--</b></div>
+          <div class="met">走行時間<b id="planDur">--</b></div>
+          <div class="met">選択中<b id="planChoice">--</b></div>
         </div>
+        <div class="status">候補を押すと、地図のルートだけが切り替わります。希望するルートを確認してから、下のボタンで天気を解析してください。299号など通りたい道路が候補にない場合は、経由地の「地図」から道路上にピンを置いて再検索してください。</div>
+        <button id="go" disabled>🌦 このルートの天気を解析</button>
+      </div>
+      <div id="res" class="c hidden">
         <div class="sum">
           <div class="met">距離<b id="dist">--</b></div>
           <div class="met">時間<b id="dur">--</b></div>
@@ -393,7 +402,7 @@
       let layers = [],
         gpx = null,
         last = null,
-        pendingRouteIndex = null,
+        routePlan = null,
         googleNavUrl = "",
         weatherCache = new Map();
       $("date").value = new Date().toISOString().slice(0, 10);
@@ -413,12 +422,15 @@
         };
         $("ways").appendChild(d);
       }
-      $("add").onclick = () => addWay();
+      $("add").onclick = () => {
+        addWay();
+        invalidateRoute("経由地を追加しました。地点を入力してルートを検索してください。");
+      };
       $("loc").onclick = () =>
         navigator.geolocation.getCurrentPosition(
           (p) => {
             $("start").value = `${p.coords.latitude},${p.coords.longitude}`;
-            $("msg").textContent = "現在地を設定しました";
+            invalidateRoute("現在地を設定しました。ルートを検索してください。");
           },
           () => ($("msg").textContent = "位置情報を取得できません"),
         );
@@ -469,7 +481,7 @@
         editingInput.dispatchEvent(new Event("input", {bubbles:true}));
         map.removeLayer(editingPin); editingPin = null;
         $("acceptPin").classList.add("hidden");
-        $("locationNotice").textContent = "指定したピン位置を設定しました。「天気解析」を押してください。";
+        $("locationNotice").textContent = "指定したピン位置を設定しました。「ルートを検索」を押してください。";
       };
       $("pickStart").onclick = async () => {
         $("pickStart").disabled = true;
@@ -677,7 +689,6 @@
       }
       function showRouteChoices(routes, selected) {
         if (!routes?.length) {
-          $("routeBox").classList.add("hidden");
           $("routeChoices").innerHTML = "";
           return;
         }
@@ -687,12 +698,53 @@
               `<button class="route-option ${i === selected ? "active" : ""}" onclick="chooseRoute(${i})">候補${i + 1}<br>${(r.distance / 1000).toFixed(0)}km・${shortDuration(r.duration)}</button>`,
           )
           .join("");
-        $("routeBox").classList.remove("hidden");
       }
       window.chooseRoute = (i) => {
-        pendingRouteIndex = i;
-        $("go").click();
+        selectRouteCandidate(i);
       };
+      function drawRoutePreview(coords) {
+        clear();
+        const line = L.polyline(coords, {
+          color: "#168cff",
+          weight: 7,
+          opacity: 0.9,
+        }).addTo(map);
+        layers.push(line);
+        if (coords.length) {
+          const startMarker = L.circleMarker(coords[0], {
+            radius: 7,
+            color: "#fff",
+            weight: 2,
+            fillColor: "#24d3a2",
+            fillOpacity: 1,
+          }).addTo(map);
+          const endMarker = L.circleMarker(coords.at(-1), {
+            radius: 7,
+            color: "#fff",
+            weight: 2,
+            fillColor: "#ff5252",
+            fillOpacity: 1,
+          }).addTo(map);
+          layers.push(startMarker, endMarker);
+        }
+        map.fitBounds(L.latLngBounds(coords), { padding: [20, 20] });
+      }
+      function selectRouteCandidate(i) {
+        if (!routePlan?.candidates?.[i]) return;
+        const selected = routePlan.candidates[i];
+        routePlan.selectedRouteIndex = i;
+        routePlan.coords = selected.geometry.coordinates.map((x) => [x[1], x[0]]);
+        routePlan.dist = selected.distance;
+        routePlan.drivingSec = selected.duration;
+        showRouteChoices(routePlan.candidates, i);
+        drawRoutePreview(routePlan.coords);
+        $("planDist").textContent = (routePlan.dist / 1000).toFixed(0) + " km";
+        $("planDur").textContent = shortDuration(routePlan.drivingSec);
+        $("planChoice").textContent = `候補${i + 1}`;
+        $("go").disabled = false;
+        $("res").classList.add("hidden");
+        $("msg").textContent = `候補${i + 1}を選択中です。地図で確認後、「このルートの天気を解析」を押してください。`;
+      }
       function setGoogleNavigation(points) {
         if (!points || points.length < 2) {
           googleNavUrl = "";
@@ -766,6 +818,7 @@
         $("res").classList.remove("hidden");
       }
       $("gpx").onchange = async (e) => {
+        invalidateRoute("GPXを確認しています…");
         let txt = await e.target.files[0].text(),
           xml = new DOMParser().parseFromString(txt, "text/xml"),
           p = [...xml.querySelectorAll("trkpt,rtept")].map((x) => [
@@ -778,22 +831,35 @@
         } else $("msg").textContent = "GPXにルート点がありません";
       };
       let lastBreaks = null;
-      $("go").onclick = async () => {
+      function invalidateRoute(message = "地点を変更しました。もう一度ルートを検索してください。") {
+        routePlan = null;
+        last = null;
+        $("go").disabled = true;
+        $("routeBox").classList.add("hidden");
+        $("res").classList.add("hidden");
+        $("msg").textContent = message;
+      }
+      $("start").addEventListener("input", () => invalidateRoute());
+      $("end").addEventListener("input", () => invalidateRoute());
+      $("ways").addEventListener("input", () => invalidateRoute());
+      $("ways").addEventListener("click", (e) => {
+        if (e.target.classList.contains("del")) invalidateRoute();
+      });
+      $("round").addEventListener("change", () => invalidateRoute());
+      document.querySelectorAll('input[name="mode"]').forEach((x) =>
+        x.addEventListener("change", () => invalidateRoute()),
+      );
+
+      $("routeSearch").onclick = async () => {
         try {
-          const requestedRouteIndex = pendingRouteIndex;
-          pendingRouteIndex = null;
-          $("go").disabled = true;
+          $("routeSearch").disabled = true;
           $("res").classList.add("hidden");
+          $("routeBox").classList.add("hidden");
+          $("go").disabled = true;
           last = null;
-          $("msg").textContent = "ルートと天気を解析中…";
-          weatherCache.clear();
-          let coords,
-            dist = 0,
-            sec = 0,
-            routeCandidates = [],
-            selectedRouteIndex = 0,
-            navPoints = [],
-            names = [
+          routePlan = null;
+          $("msg").textContent = "ルートを検索中…";
+          const names = [
               $("start").value,
               ...[...document.querySelectorAll(".wi")]
                 .map((x) => x.value)
@@ -802,12 +868,12 @@
             ];
           if ($("round").checked) names.push($("start").value);
           if (gpx) {
-            coords = gpx;
-            navPoints = [
+            let dist = 0;
+            const coords = gpx;
+            const navPoints = [
               { lat: coords[0][0], lon: coords[0][1] },
               { lat: coords.at(-1)[0], lon: coords.at(-1)[1] },
             ];
-            showRouteChoices([], 0);
             for (let i = 1; i < coords.length; i++) {
               let a = coords[i - 1],
                 b = coords[i],
@@ -824,7 +890,24 @@
             const mode = document.querySelector(
               'input[name="mode"]:checked',
             ).value;
-            sec = (dist / (mode === "local" ? 35000 : 45000)) * 3600;
+            const drivingSec = (dist / (mode === "local" ? 35000 : 45000)) * 3600;
+            routePlan = {
+              coords,
+              dist,
+              drivingSec,
+              navPoints,
+              candidates: [],
+              selectedRouteIndex: 0,
+            };
+            $("routeChoices").innerHTML = '<button class="route-option active" disabled>GPXルート</button>';
+            $("planChoice").textContent = "GPX";
+            $("planDist").textContent = (dist / 1000).toFixed(0) + " km";
+            $("planDur").textContent = shortDuration(drivingSec);
+            drawRoutePreview(coords);
+            setGoogleNavigation(navPoints);
+            $("routeBox").classList.remove("hidden");
+            $("go").disabled = false;
+            $("msg").textContent = "GPXルートを表示しました。地図で確認後、天気を解析してください。";
           } else {
             let ps = [],
               resolved = [];
@@ -841,7 +924,7 @@
               $("msg").textContent =
                 `地点を確認中… ${ps.length}/${names.length}\n${resolved.at(-1)}`;
             }
-            navPoints = ps;
+            const navPoints = ps;
             let q = ps.map((p) => `${p.lon},${p.lat}`).join(";"),
               j = await (
                 await fetch(
@@ -849,46 +932,64 @@
                 )
               ).json();
             if (!j.routes?.length) throw Error("ルート作成失敗");
-            routeCandidates = j.routes.slice(0, 3);
+            const routeCandidates = j.routes.slice(0, 3);
             const mode = document.querySelector(
               'input[name="mode"]:checked',
             ).value;
-            if (
-              Number.isInteger(requestedRouteIndex) &&
-              requestedRouteIndex >= 0 &&
-              requestedRouteIndex < routeCandidates.length
-            )
-              selectedRouteIndex = requestedRouteIndex;
-            else if (mode === "local")
-              selectedRouteIndex = routeCandidates.reduce(
+            const selectedRouteIndex = mode === "local"
+              ? routeCandidates.reduce(
                 (best, r, i, a) =>
                   r.distance < a[best].distance ? i : best,
                 0,
-              );
-            else
-              selectedRouteIndex = routeCandidates.reduce(
+              )
+              : routeCandidates.reduce(
                 (best, r, i, a) =>
                   r.duration < a[best].duration ? i : best,
                 0,
               );
             const selectedRoute = routeCandidates[selectedRouteIndex];
-            coords = selectedRoute.geometry.coordinates.map((x) => [x[1], x[0]]);
-            dist = selectedRoute.distance;
-            sec = selectedRoute.duration;
-            showRouteChoices(routeCandidates, selectedRouteIndex);
             let directKm = 0;
             for (let i = 1; i < ps.length; i++) directKm += km(ps[i - 1], ps[i]);
-            if (dist / 1000 > Math.max(directKm * 4, directKm + 500))
+            if (selectedRoute.distance / 1000 > Math.max(directKm * 4, directKm + 500))
               throw Error(
                 "入力地点から大きく外れる異常なルートを検出しました。地点名を詳しく入力してください。",
               );
-            $("msg").textContent =
-              "地点確認完了：" + resolved.map((x) => x.split(" → ")[1]).join(" → ");
+            routePlan = {
+              coords: [],
+              dist: 0,
+              drivingSec: 0,
+              navPoints,
+              candidates: routeCandidates,
+              selectedRouteIndex,
+              resolved,
+            };
+            setGoogleNavigation(navPoints);
+            $("routeBox").classList.remove("hidden");
+            selectRouteCandidate(selectedRouteIndex);
+            $("msg").textContent = routeCandidates.length > 1
+              ? `ルート候補を${routeCandidates.length}件表示しました。希望するルートを選んでください。`
+              : "ルートを表示しました。地図で確認後、天気を解析してください。";
           }
-          setGoogleNavigation(navPoints);
-          lastBreaks = withBreaks(sec);
-          sec = lastBreaks.total;
-          let st = new Date(`${$("date").value}T${$("time").value}:00`),
+        } catch (e) {
+          routePlan = null;
+          $("go").disabled = true;
+          $("msg").textContent = "エラー: " + e.message;
+        } finally {
+          $("routeSearch").disabled = false;
+        }
+      };
+
+      $("go").onclick = async () => {
+        if (!routePlan) return;
+        try {
+          $("go").disabled = true;
+          $("msg").textContent = "選択したルートの天気を解析中…";
+          weatherCache.clear();
+          lastBreaks = withBreaks(routePlan.drivingSec);
+          const sec = lastBreaks.total,
+            coords = routePlan.coords,
+            dist = routePlan.dist,
+            st = new Date(`${$("date").value}T${$("time").value}:00`),
             f = await assess(coords, st, sec, 9);
           render(coords, f, dist, sec);
           await timeCompare(coords, st, sec);
@@ -906,13 +1007,13 @@
             breakEvery: $("breakEvery").value,
             breakMinutes: $("breakMinutes").value,
           };
-          $("msg").textContent = routeCandidates.length > 1
-            ? `解析完了（候補${selectedRouteIndex + 1}を表示）`
-            : "解析完了";
+          $("msg").textContent = routePlan.candidates.length
+            ? `候補${routePlan.selectedRouteIndex + 1}の天気解析が完了しました。`
+            : "選択ルートの天気解析が完了しました。";
         } catch (e) {
           $("msg").textContent = "エラー: " + e.message;
         } finally {
-          $("go").disabled = false;
+          $("go").disabled = !routePlan;
         }
       };
       function showSaved() {
@@ -942,6 +1043,9 @@
         if (mode) mode.checked = true;
         $("breakEvery").value = x.breakEvery || "90";
         $("breakMinutes").value = x.breakMinutes || "15";
+        gpx = null;
+        $("gpx").value = "";
+        invalidateRoute("保存したコースを読み込みました。ルートを検索してください。");
         scrollTo({ top: 0, behavior: "smooth" });
       };
       window.delR = (i) => {
