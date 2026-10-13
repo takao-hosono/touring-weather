@@ -11,7 +11,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-title" content="Touring Weather" />
-    <title>Touring Weather v0.13</title>
+    <title>Touring Weather v0.14</title>
     <link
       rel="stylesheet"
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -252,6 +252,12 @@
         outline: 2px solid var(--g);
         background: #123329;
       }
+      .route-option small {
+        display: block;
+        margin-top: 4px;
+        color: var(--m);
+        font-size: 10px;
+      }
       button:disabled {
         opacity: 0.45;
       }
@@ -297,7 +303,7 @@
   </head>
   <body>
     <header>
-      🏍️ Touring Weather <small>RIDE WITH CLEAR SKIES · v0.13</small>
+      🏍️ Touring Weather <small>RIDE WITH CLEAR SKIES · v0.14</small>
     </header>
     <div class="w">
       <div class="c">
@@ -321,10 +327,10 @@
               type="radio"
               value="fast"
               checked
-            />所要時間を優先</label
+            />高速道路を利用</label
           >
           <label
-            ><input name="mode" type="radio" value="local" />走行距離を優先</label
+            ><input name="mode" type="radio" value="local" />一般道を優先</label
           >
         </div>
         <label>休憩</label>
@@ -389,7 +395,7 @@
         <div id="saved"></div>
       </div>
       <div class="foot">
-        試作版。経路候補はOSRMデモ（自動車向け）、天気はOpen-Meteo、地図はOpenStreetMapです。「距離優先」は取得できた候補内で最短の経路を選びます。Googleマップでは経路が再計算される場合があります。二輪規制・通行止め等は必ず別途確認してください。
+        試作版。経路候補はOSRMデモ（自動車向け）、天気はOpen-Meteo、地図はOpenStreetMapです。「一般道を優先」は取得できた候補の道路名・路線番号から高速道路区間が少ない候補を優先しますが、高速道路の完全除外は保証されません。Googleマップでは経路が再計算される場合があります。二輪規制・通行止め等は必ず別途確認してください。
       </div>
     </div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -687,6 +693,18 @@
           m = Math.round((sec % 3600) / 60);
         return `${h ? h + "時間" : ""}${m}分`;
       }
+      function motorwayDistance(route) {
+        const motorway = /(高速|自動車道|首都高|中央道|関越道|東名|新東名|圏央道|常磐道|東北道|名神|新名神|阪神高速|expressway|\bE\d{1,2}[A-Z]?\b|\bC[1-4]\b)/i;
+        return (route.legs || []).flatMap((leg) => leg.steps || []).reduce(
+          (sum, step) => {
+            const road = [step.name, step.ref, step.destinations]
+              .filter(Boolean)
+              .join(" ");
+            return sum + (motorway.test(road) ? step.distance || 0 : 0);
+          },
+          0,
+        );
+      }
       function showRouteChoices(routes, selected) {
         if (!routes?.length) {
           $("routeChoices").innerHTML = "";
@@ -695,7 +713,7 @@
         $("routeChoices").innerHTML = routes
           .map(
             (r, i) =>
-              `<button class="route-option ${i === selected ? "active" : ""}" onclick="chooseRoute(${i})">候補${i + 1}<br>${(r.distance / 1000).toFixed(0)}km・${shortDuration(r.duration)}</button>`,
+              `<button class="route-option ${i === selected ? "active" : ""}" onclick="chooseRoute(${i})">候補${i + 1}<br>${(r.distance / 1000).toFixed(0)}km・${shortDuration(r.duration)}${r._motorwayDist > 0 ? `<small>高速道路を約${(r._motorwayDist / 1000).toFixed(0)}km検出</small>` : ""}</button>`,
           )
           .join("");
       }
@@ -928,18 +946,25 @@
             let q = ps.map((p) => `${p.lon},${p.lat}`).join(";"),
               j = await (
                 await fetch(
-                  `https://router.project-osrm.org/route/v1/driving/${q}?overview=full&geometries=geojson&alternatives=3`,
+                  `https://router.project-osrm.org/route/v1/driving/${q}?overview=full&geometries=geojson&steps=true&alternatives=3`,
                 )
               ).json();
             if (!j.routes?.length) throw Error("ルート作成失敗");
             const routeCandidates = j.routes.slice(0, 3);
+            routeCandidates.forEach((route) => {
+              route._motorwayDist = motorwayDistance(route);
+            });
             const mode = document.querySelector(
               'input[name="mode"]:checked',
             ).value;
             const selectedRouteIndex = mode === "local"
               ? routeCandidates.reduce(
-                (best, r, i, a) =>
-                  r.distance < a[best].distance ? i : best,
+                (best, r, i, a) => {
+                  const current = a[best];
+                  if (r._motorwayDist !== current._motorwayDist)
+                    return r._motorwayDist < current._motorwayDist ? i : best;
+                  return r.distance < current.distance ? i : best;
+                },
                 0,
               )
               : routeCandidates.reduce(
@@ -966,9 +991,15 @@
             setGoogleNavigation(navPoints);
             $("routeBox").classList.remove("hidden");
             selectRouteCandidate(selectedRouteIndex);
-            $("msg").textContent = routeCandidates.length > 1
-              ? `ルート候補を${routeCandidates.length}件表示しました。希望するルートを選んでください。`
-              : "ルートを表示しました。地図で確認後、天気を解析してください。";
+            if (mode === "local") {
+              $("msg").textContent = selectedRoute._motorwayDist > 0
+                ? `一般道優先の候補を選びましたが、高速道路を約${(selectedRoute._motorwayDist / 1000).toFixed(0)}km検出しました。地図を確認し、必要なら一般道上に経由地ピンを置いて再検索してください。`
+                : `一般道優先の候補を選びました。候補を切り替えて地図上でも確認できます。`;
+            } else {
+              $("msg").textContent = routeCandidates.length > 1
+                ? `高速道路を利用するルート候補を${routeCandidates.length}件表示しました。希望するルートを選んでください。`
+                : "高速道路を利用するルートを表示しました。地図で確認後、天気を解析してください。";
+            }
           }
         } catch (e) {
           routePlan = null;
